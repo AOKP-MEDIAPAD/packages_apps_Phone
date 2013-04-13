@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2006 The Android Open Source Project
+ * Blacklist - Copyright (C) 2013 The CyanogenMod Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +21,7 @@ import com.android.internal.telephony.Call;
 import com.android.internal.telephony.CallManager;
 import com.android.internal.telephony.CallerInfo;
 import com.android.internal.telephony.CallerInfoAsyncQuery;
+import com.android.internal.telephony.CallStateException;
 import com.android.internal.telephony.Connection;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
@@ -33,11 +35,16 @@ import com.android.internal.telephony.CallManager;
 import com.android.phone.CallFeaturesSetting;
 
 import android.app.ActivityManagerNative;
+import android.app.Notification;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothHeadset;
 import android.bluetooth.BluetoothProfile;
 import android.content.ContentResolver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.res.Resources;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
 import android.media.VibrationPattern;
@@ -57,6 +64,10 @@ import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.EventLog;
 import android.util.Log;
+import android.widget.Toast;
+
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Phone app module that listens for phone state changes and various other
@@ -162,6 +173,10 @@ public class CallNotifier extends Handler
     private CallLogAsync mCallLog;
     private boolean mSilentRingerRequested;
 
+    private boolean mNextGsmCallIsForwarded;
+    private Set<Connection> mForwardedCalls;
+    private Set<Connection> mWaitingCalls;
+
     // ToneGenerator instance for playing SignalInfo tones
     private ToneGenerator mSignalInfoToneGenerator;
 
@@ -186,6 +201,9 @@ public class CallNotifier extends Handler
     // Cached AudioManager
     private AudioManager mAudioManager;
 
+    // Blacklist handling
+    private static final String BLACKLIST = "Blacklist";
+
     /**
      * Initialize the singleton CallNotifier instance.
      * This is only done once, at startup, from PhoneApp.onCreate().
@@ -207,6 +225,9 @@ public class CallNotifier extends Handler
         mApplication = app;
         mCM = app.mCM;
         mCallLog = callLog;
+
+        mForwardedCalls = new HashSet<Connection>();
+        mWaitingCalls = new HashSet<Connection>();
 
         mAudioManager = (AudioManager) mApplication.getSystemService(Context.AUDIO_SERVICE);
 
@@ -239,6 +260,25 @@ public class CallNotifier extends Handler
         telephonyManager.listen(mPhoneStateListener,
                 PhoneStateListener.LISTEN_MESSAGE_WAITING_INDICATOR
                 | PhoneStateListener.LISTEN_CALL_FORWARDING_INDICATOR);
+    }
+
+    public boolean isCallForwarded(Call call) {
+        for (Connection c : mForwardedCalls) {
+            if (call.hasConnection(c)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public boolean isCallWaiting(Call call) {
+        for (Connection c : mWaitingCalls) {
+            if (call.hasConnection(c)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -398,6 +438,7 @@ public class CallNotifier extends Handler
             // that an incoming call occurred.  (This will generally send the
             // caller straight to voicemail, just as if we *had* shown the
             // incoming-call UI and the user had declined the call.)
+
             PhoneUtils.hangupRingingCall(ringing);
             return;
         }
@@ -410,6 +451,33 @@ public class CallNotifier extends Handler
             // without doing anything.  (But presumably we'll log it in
             // the call log when the disconnect event comes in...)
             return;
+        }
+
+        // Blacklist handling
+        String number = c.getAddress();
+        if (TextUtils.isEmpty(number)) {
+            number = "0000";
+        }
+        if (DBG) log("Incoming number is: " + number);
+        // See if the number is in the blacklist
+        // Result is one of: MATCH_NONE, MATCH_LIST or MATCH_REGEX
+        int listType = mApplication.blackList.isListed(number);
+        if (listType != Blacklist.MATCH_NONE) {
+            // We have a match, set the user and hang up the call and notify
+            if (DBG) log("Incoming call from " + number + " blocked.");
+            c.setUserData(BLACKLIST);
+            try {
+                c.hangup();
+                showBlacklistNotification(number, listType);
+            } catch (CallStateException e) {
+                e.printStackTrace();
+            }
+            return;
+        }
+
+        if (phone.getPhoneType() == PhoneConstants.PHONE_TYPE_GSM && mNextGsmCallIsForwarded) {
+            mForwardedCalls.add(c);
+            mNextGsmCallIsForwarded = false;
         }
 
         // Stop any signalInfo tone being played on receiving a Call
@@ -898,6 +966,7 @@ public class CallNotifier extends Handler
         mCM.unregisterForCdmaOtaStatusChange(this);
         mCM.unregisterForRingbackTone(this);
         mCM.unregisterForResendIncallMute(this);
+        mCM.unregisterForSuppServiceNotification(this);
 
         // Release the ToneGenerator used for playing SignalInfo and CallWaiting
         if (mSignalInfoToneGenerator != null) {
@@ -1047,6 +1116,11 @@ public class CallNotifier extends Handler
             Log.w(LOG_TAG, "onDisconnect: null connection");
         }
 
+        if (c != null) {
+            mForwardedCalls.remove(c);
+            mWaitingCalls.remove(c);
+        }
+
         int autoretrySetting = 0;
         if ((c != null) && (c.getCall().getPhone().getPhoneType() == PhoneConstants.PHONE_TYPE_CDMA)) {
             autoretrySetting = android.provider.Settings.Global.getInt(mApplication.
@@ -1066,6 +1140,12 @@ public class CallNotifier extends Handler
         }
 
         if (c != null) {
+            Object o = c.getUserData();
+            if (BLACKLIST.equals(o)) {
+                if (VDBG) Log.i(LOG_TAG, "in blacklist so skip calllog");
+                return;
+            }
+
             boolean vibHangup = PhoneUtils.PhoneSettings.vibHangup(mApplication);
             if (vibHangup && c.getDurationMillis() > 0) {
                 mApplication.vibrate(50, 100, 50);
@@ -2150,5 +2230,35 @@ public class CallNotifier extends Handler
 
     private void log(String msg) {
         Log.d(LOG_TAG, msg);
+    }
+
+    private void showBlacklistNotification(String number, int listType) {
+        Context ctx = mApplication.getApplicationContext();
+        if (!PhoneUtils.PhoneSettings.isBlacklistNotifyEnabled(ctx)) {
+            return;
+        }
+
+        // Build the basic notification
+        Resources res = ctx.getResources();
+        Notification.Builder builder = new Notification.Builder(ctx);
+        builder.setSmallIcon(R.drawable.ic_block_contact_holo_dark);
+        builder.setContentTitle(res.getString(R.string.blacklist_title));
+        String message = res.getString(R.string.blacklist_notification, number);
+        builder.setContentText(message);
+
+        // Add the 'Remove block' notification action only for MATCH_LIST items since
+        // MATCH_REGEX items does not have an associated specific number to unblock
+        if (listType == Blacklist.MATCH_LIST) {
+            Intent intent = new Intent(PhoneGlobals.REMOVE_BLACKLIST);
+            intent.putExtra(PhoneGlobals.EXTRA_NUMBER, number);
+            PendingIntent pi = PendingIntent.getBroadcast(ctx, 0, intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT);
+            CharSequence action = ctx.getText(R.string.unblock_number);
+            builder.addAction(R.drawable.ic_unblock_contact_holo_dark, action, pi);
+        }
+
+        // Post the notification
+        NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+        nm.notify(PhoneGlobals.BL_NOTIFICATION_ID, builder.build());
     }
 }
