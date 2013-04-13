@@ -433,15 +433,12 @@ public class PhoneUtils {
             	.getBoolean("button_enable_blacklist", false);
         }
         static boolean isBlacklistNotifyEnabled(Context context) {
-            return             return PreferenceManager.getDefaultSharedPreferences(context)
+            return PreferenceManager.getDefaultSharedPreferences(context)
             	.getBoolean("button_nofify", false);
         }
         static boolean isBlacklistRegexEnabled(Context context) {
             return PreferenceManager.getDefaultSharedPreferences(context)
             	.getBoolean("button_blacklist_regex", false);
-        }
-        private static SharedPreferences getPrefs(Context context) {
-			return PreferenceManager.getDefaultSharedPreferences(context)
         }
     }
 
