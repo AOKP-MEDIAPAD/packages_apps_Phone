@@ -437,7 +437,8 @@ public class PhoneUtils {
             	.getBoolean("button_nofify", false);
         }
         static boolean isBlacklistPrivateNumberEnabled(Context context) {
-            return getPrefs(context).getBoolean("button_blacklist_private_numbers", false);
+            return PreferenceManager.getDefaultSharedPreferences(context)
+            	.getBoolean("button_blacklist_private_numbers", false);
         }
         static boolean isBlacklistRegexEnabled(Context context) {
             return PreferenceManager.getDefaultSharedPreferences(context)
