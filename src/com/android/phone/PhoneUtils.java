@@ -384,20 +384,16 @@ public class PhoneUtils {
 
     static class PhoneSettings {
         static boolean vibOn60Secs(Context context) {
-            return PreferenceManager.getDefaultSharedPreferences(context)
-                      .getBoolean("button_vibrate_60", false);
+            return getPrefs(context).getBoolean("button_vibrate_60", false);
         }
         static boolean vibHangup(Context context) {
-            return PreferenceManager.getDefaultSharedPreferences(context)
-                      .getBoolean("button_vibrate_hangup", false);
+            return getPrefs(context).getBoolean("button_vibrate_hangup", false);
         }
         static boolean vibOutgoing(Context context) {
-            return PreferenceManager.getDefaultSharedPreferences(context)
-                      .getBoolean("button_vibrate_outgoing", false);
+            return getPrefs(context).getBoolean("button_vibrate_outgoing", false);
         }
         static boolean vibCallWaiting(Context context) {
-            return PreferenceManager.getDefaultSharedPreferences(context)
-                      .getBoolean("button_vibrate_call_waiting", false);
+            return getPrefs(context).getBoolean("button_vibrate_call_waiting", false);
         }
 
         /* Voice quality filter */
@@ -429,20 +425,22 @@ public class PhoneUtils {
             return Integer.parseInt(conf);
         }
         static boolean isBlacklistEnabled(Context context) {
-            return  PreferenceManager.getDefaultSharedPreferences(context)
-            	.getBoolean("button_enable_blacklist", false);
+            return getPrefs(context).getBoolean("button_enable_blacklist", false);
         }
         static boolean isBlacklistNotifyEnabled(Context context) {
-            return PreferenceManager.getDefaultSharedPreferences(context)
-            	.getBoolean("button_nofify", false);
+            return getPrefs(context).getBoolean("button_nofify", false);
         }
         static boolean isBlacklistPrivateNumberEnabled(Context context) {
-            return PreferenceManager.getDefaultSharedPreferences(context)
-            	.getBoolean("button_blacklist_private_numbers", false);
+            return getPrefs(context).getBoolean("button_blacklist_private_numbers", false);
+        }
+        static boolean isBlacklistUnknownNumberEnabled(Context context) {
+            return getPrefs(context).getBoolean("button_blacklist_unknown_numbers", false);
         }
         static boolean isBlacklistRegexEnabled(Context context) {
-            return PreferenceManager.getDefaultSharedPreferences(context)
-            	.getBoolean("button_blacklist_regex", false);
+            return getPrefs(context).getBoolean("button_blacklist_regex", false);
+        }
+        private static SharedPreferences getPrefs(Context context) {
+            return PreferenceManager.getDefaultSharedPreferences(context);
         }
     }
 

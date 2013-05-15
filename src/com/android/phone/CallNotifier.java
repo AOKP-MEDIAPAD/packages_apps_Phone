@@ -33,6 +33,7 @@ import com.android.internal.telephony.cdma.CdmaInformationRecords.CdmaSignalInfo
 import com.android.internal.telephony.cdma.SignalToneUtil;
 import com.android.internal.telephony.CallManager;
 import com.android.phone.CallFeaturesSetting;
+import com.android.internal.telephony.gsm.SuppServiceNotification;
 
 import android.app.ActivityManagerNative;
 import android.app.Notification;
@@ -468,7 +469,8 @@ public class CallNotifier extends Handler
             c.setUserData(BLACKLIST);
             try {
                 c.hangup();
-                showBlacklistNotification(number, listType);
+                mApplication.notificationMgr.notifyBlacklistedCall(number,
+                        c.getCreateTime(), listType);
             } catch (CallStateException e) {
                 e.printStackTrace();
             }
